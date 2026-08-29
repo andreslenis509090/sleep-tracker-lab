@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from datetime import datetime
+from datetime import datetime, timedelta
 
 load_dotenv()
 
@@ -27,6 +29,13 @@ class UsuarioCreate(BaseModel):
     email: str
     contrasena: str
 
+class RegistroCreate(BaseModel):
+    id_usuario: int
+    hora_inicio: str
+    hora_final: str
+    fecha: str
+    calidad: int
+
 @app.get("/")
 def root():
     return {"mensaje": "API de sleep-tracker-lab funcionando"}
@@ -45,6 +54,24 @@ def crear_usuario(usuario: UsuarioCreate):
 @app.get("/registros")
 def listar_registros():
     response = supabase.table("registro_sueno").select("*, usuario(nombre, apellido)").execute()
+    return response.data
+
+@app.post("/registros")
+def crear_registro(registro: RegistroCreate):
+    datos = registro.model_dump()
+    
+    formato = "%H:%M:%S"
+    inicio = datetime.strptime(datos["hora_inicio"], formato)
+    final = datetime.strptime(datos["hora_final"], formato)
+    
+    diferencia = final - inicio
+    if diferencia.total_seconds() < 0:
+        diferencia += timedelta(days=1)
+    
+    duracion_horas = diferencia.total_seconds() / 3600
+    datos["duracion"] = round(duracion_horas, 2)
+    
+    response = supabase.table("registro_sueno").insert(datos).execute()
     return response.data
 
 class UsuarioLogin(BaseModel):
