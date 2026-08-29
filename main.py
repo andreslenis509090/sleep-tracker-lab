@@ -119,3 +119,34 @@ def login(credenciales: UsuarioLogin):
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     
     return {"access_token": token, "token_type": "bearer"}
+
+@app.delete("/registros/{id_registro}")
+def eliminar_registro(id_registro: int, usuario_actual: int = Depends(verificar_token)):
+    registro = supabase.table("registro_sueno").select("id_usuario").eq("id_registro", id_registro).execute()
+
+    if not registro.data:
+        raise HTTPException(status_code=404, detail="Registro no encontrado")
+
+    if registro.data[0]["id_usuario"] != usuario_actual:
+        raise HTTPException(status_code=403, detail="No puedes eliminar registros de otro usuario")
+
+    supabase.table("recomendacion").delete().eq("id_registro", id_registro).execute()
+    supabase.table("registro_sueno").delete().eq("id_registro", id_registro).execute()
+
+    return {"mensaje": "Registro eliminado correctamente"}
+
+@app.delete("/usuarios/{id_usuario}")
+def eliminar_usuario(id_usuario: int, usuario_actual: int = Depends(verificar_token)):
+    if id_usuario != usuario_actual:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tu propia cuenta")
+
+    registros = supabase.table("registro_sueno").select("id_registro").eq("id_usuario", id_usuario).execute()
+
+    for registro in registros.data:
+        supabase.table("recomendacion").delete().eq("id_registro", registro["id_registro"]).execute()
+
+    supabase.table("registro_sueno").delete().eq("id_usuario", id_usuario).execute()
+    supabase.table("alerta").delete().eq("id_usuario", id_usuario).execute()
+    supabase.table("usuario").delete().eq("id_usuario", id_usuario).execute()
+
+    return {"mensaje": "Usuario y sus datos asociados eliminados correctamente"}
