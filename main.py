@@ -111,11 +111,13 @@ def login(credenciales: UsuarioLogin):
     if not bcrypt.checkpw(contrasena_bytes, hash_guardado):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     
-    expiracion = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {
-        "sub": str(usuario_db["id_usuario"]),
-        "exp": expiracion
-    }
-    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    
-    return {"access_token": token, "token_type": "bearer"}
+    try:
+        expiracion = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        payload = {
+            "sub": str(usuario_db["id_usuario"]),
+            "exp": expiracion
+        }
+        token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+        return {"access_token": token, "token_type": "bearer"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando token: {str(e)} | SECRET_KEY presente: {SECRET_KEY is not None}")
