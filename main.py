@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Depends
 
@@ -77,20 +77,64 @@ def listar_registros():
 @app.post("/registros")
 def crear_registro(registro: RegistroCreate, usuario_actual: int = Depends(verificar_token)):
     datos = registro.model_dump()
-    
+
+    if not datos["hora_inicio"].strip():
+        raise HTTPException(status_code=400, detail="La hora es obligatoria")
+
     formato = "%H:%M:%S"
-    inicio = datetime.strptime(datos["hora_inicio"], formato)
-    final = datetime.strptime(datos["hora_final"], formato)
-    
+    try:
+        inicio = datetime.strptime(datos["hora_inicio"], formato)
+        final = datetime.strptime(datos["hora_final"], formato)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de hora no válido")
+
+    fecha_hora_inicio = datetime.strptime(datos["fecha"] + " " + datos["hora_inicio"], "%Y-%m-%d %H:%M:%S")
+    if fecha_hora_inicio > datetime.now():
+        raise HTTPException(status_code=400, detail="No se puede registrar un inicio de sueño en el futuro")
+
     diferencia = final - inicio
     if diferencia.total_seconds() < 0:
         diferencia += timedelta(days=1)
-    
+
     duracion_horas = diferencia.total_seconds() / 3600
     datos["duracion"] = round(duracion_horas, 2)
-    
+
     response = supabase.table("registro_sueno").insert(datos).execute()
     return response.data
+
+@app.get("/metricas")
+def obtener_metricas(offset_semanas: int = 0, usuario_actual: int = Depends(verificar_token)):
+    hoy = date.today()
+    lunes_actual = hoy - timedelta(days=hoy.weekday())
+    lunes_semana = lunes_actual - timedelta(weeks=offset_semanas)
+    domingo_semana = lunes_semana + timedelta(days=6)
+
+    response = supabase.table("registro_sueno").select("fecha, duracion, calidad").eq("id_usuario", usuario_actual).gte("fecha", lunes_semana.isoformat()).lte("fecha", domingo_semana.isoformat()).execute()
+
+    registros_por_fecha = {r["fecha"]: r for r in response.data}
+
+    dias = []
+    for i in range(7):
+        fecha_dia = lunes_semana + timedelta(days=i)
+        fecha_str = fecha_dia.isoformat()
+        registro = registros_por_fecha.get(fecha_str)
+        dias.append({
+            "fecha": fecha_str,
+            "horas": registro["duracion"] if registro else None,
+            "calidad": registro["calidad"] if registro else None,
+            "critico": registro is not None and registro["duracion"] < 6
+        })
+
+    horas_validas = [d["horas"] for d in dias if d["horas"] is not None]
+    promedio = round(sum(horas_validas) / len(horas_validas), 1) if horas_validas else None
+
+    return {
+        "semana_inicio": lunes_semana.isoformat(),
+        "semana_fin": domingo_semana.isoformat(),
+        "dias": dias,
+        "promedio_semanal": promedio,
+        "tiene_datos": len(horas_validas) > 0
+    }
 
 class UsuarioLogin(BaseModel):
     email: str
