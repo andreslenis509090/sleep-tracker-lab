@@ -150,3 +150,5 @@ def eliminar_usuario(id_usuario: int, usuario_actual: int = Depends(verificar_to
     supabase.table("usuario").delete().eq("id_usuario", id_usuario).execute()
 
     return {"mensaje": "Usuario y sus datos asociados eliminados correctamente"}
+
+# test preview deploy
