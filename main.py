@@ -136,6 +136,80 @@ def obtener_metricas(offset_semanas: int = 0, usuario_actual: int = Depends(veri
         "tiene_datos": len(horas_validas) > 0
     }
 
+class AlertaCreate(BaseModel):
+    hora_recordatorio: str
+    tipo: str
+
+TIPOS_VALIDOS = {"dormir", "despertar"}
+
+@app.post("/alertas")
+def crear_alerta(alerta: AlertaCreate, usuario_actual: int = Depends(verificar_token)):
+    datos = alerta.model_dump()
+
+    if datos["tipo"] not in TIPOS_VALIDOS:
+        raise HTTPException(status_code=400, detail="El tipo debe ser 'dormir' o 'despertar'")
+
+    formato = "%H:%M:%S"
+    try:
+        datetime.strptime(datos["hora_recordatorio"], formato)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de hora no válido")
+
+    existente = supabase.table("alerta").select("id_alerta").eq("id_usuario", usuario_actual).eq("tipo", datos["tipo"]).eq("hora_recordatorio", datos["hora_recordatorio"]).eq("estado", True).execute()
+
+    if existente.data:
+        raise HTTPException(status_code=409, detail="Ya existe una alerta activa idéntica para esa hora y tipo")
+
+    datos["id_usuario"] = usuario_actual
+    datos["estado"] = True
+
+    response = supabase.table("alerta").insert(datos).execute()
+    return response.data
+
+
+@app.get("/alertas")
+def listar_alertas(usuario_actual: int = Depends(verificar_token)):
+    response = supabase.table("alerta").select("*").eq("id_usuario", usuario_actual).execute()
+    return response.data
+
+
+class AlertaUpdate(BaseModel):
+    hora_recordatorio: str
+
+@app.put("/alertas/{id_alerta}")
+def actualizar_alerta(id_alerta: int, cambio: AlertaUpdate, usuario_actual: int = Depends(verificar_token)):
+    alerta = supabase.table("alerta").select("id_usuario").eq("id_alerta", id_alerta).execute()
+
+    if not alerta.data:
+        raise HTTPException(status_code=404, detail="Alerta no encontrada")
+
+    if alerta.data[0]["id_usuario"] != usuario_actual:
+        raise HTTPException(status_code=403, detail="No puedes modificar alertas de otro usuario")
+
+    formato = "%H:%M:%S"
+    try:
+        datetime.strptime(cambio.hora_recordatorio, formato)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de hora no válido")
+
+    response = supabase.table("alerta").update({"hora_recordatorio": cambio.hora_recordatorio}).eq("id_alerta", id_alerta).execute()
+    return response.data
+
+
+@app.delete("/alertas/{id_alerta}")
+def desactivar_alerta(id_alerta: int, usuario_actual: int = Depends(verificar_token)):
+    alerta = supabase.table("alerta").select("id_usuario").eq("id_alerta", id_alerta).execute()
+
+    if not alerta.data:
+        raise HTTPException(status_code=404, detail="Alerta no encontrada")
+
+    if alerta.data[0]["id_usuario"] != usuario_actual:
+        raise HTTPException(status_code=403, detail="No puedes desactivar alertas de otro usuario")
+
+    supabase.table("alerta").update({"estado": False}).eq("id_alerta", id_alerta).execute()
+    return {"mensaje": "Alerta desactivada correctamente"}
+
+
 class UsuarioLogin(BaseModel):
     email: str
     contrasena: str
